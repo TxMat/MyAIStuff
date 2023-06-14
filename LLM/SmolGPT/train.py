@@ -41,7 +41,7 @@ print(f'targets: {yb.shape}')
 print(yb)
 print('--------------')
 
-model = model.BigramLanguageModel(len(tok.vocab))
+model = model.BigramLanguageModel(len(tok.vocab), block_size)
 m = model.to(device)
 out, loss = model(xb, yb)
 print(out.shape)

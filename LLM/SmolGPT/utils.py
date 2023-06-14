@@ -25,4 +25,4 @@ class Tokenizer():
         Decodes the tokens to human readable string out of the vocab
         """
         return ''.join([self.itos[i] for i in tokens])
-
+ 
