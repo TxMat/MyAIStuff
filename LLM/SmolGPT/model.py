@@ -83,7 +83,7 @@ class Block(nn.Module):
 
 class BigramLanguageModel(nn.Module):
 
-    def __init__(self, vocab_size: int, ctx_len: int, n_emb = 32, n_layer = 4, n_head = 4, device = 'gpu' if torch.cuda.is_available() else 'cpu') -> None:
+    def __init__(self, vocab_size: int, ctx_len: int, n_emb = 32, n_layer = 4, n_head = 4, device = 'cuda' if torch.cuda.is_available() else 'cpu') -> None:
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.position_embedding_table = nn.Embedding(ctx_len, n_emb)
