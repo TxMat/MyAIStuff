@@ -83,17 +83,12 @@ class Block(nn.Module):
 
 class BigramLanguageModel(nn.Module):
 
-    def __init__(self, vocab_size: int, ctx_len: int, n_emb = 32, device = 'gpu' if torch.cuda.is_available() else 'cpu') -> None:
+    def __init__(self, vocab_size: int, ctx_len: int, n_emb = 32, n_layer = 4, n_head = 4, device = 'gpu' if torch.cuda.is_available() else 'cpu') -> None:
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.position_embedding_table = nn.Embedding(ctx_len, n_emb)
-        self.blocks = nn.Sequential(
-            Block(n_emb, 4, ctx_len),
-            Block(n_emb, 4, ctx_len),
-            Block(n_emb, 4, ctx_len),
-            Block(n_emb, 4, ctx_len),
-            nn.LayerNorm(n_emb)
-        )
+        self.blocks = nn.Sequential(*[Block(n_emb, n_head, ctx_len) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(n_emb) # Final layer norm
         self.lm_head = nn.Linear(n_emb, vocab_size)
         
         self.device = device
@@ -106,6 +101,7 @@ class BigramLanguageModel(nn.Module):
         pos_emb = self.position_embedding_table(torch.arange(T, device=self.device)) # (T, C)
         x = tok_emb + pos_emb # (B, T, C)
         x = self.blocks(x) # (B, T, C)
+        x = self.ln_f(x) # (B, T, C)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
