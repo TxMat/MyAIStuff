@@ -1,21 +1,44 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from dataclasses import dataclass
 
 # B: Batch dimension
 # T: Time dimension
 # C: Channel dimetion IE vocab_size
 
+@dataclass
+class ModelConfig():
+    device: str
+    vocab_size: int
+    batch_size: int
+    block_size: int
+    n_embd: int
+    n_head: int
+    n_layer: int
+    dropout: float
+
+model_config = ModelConfig(
+    'cuda' if torch.cuda.is_available() else 'cpu',
+    24*2+10,
+    64,
+    256,
+    384,
+    6, 
+    6,
+    0.2
+)
+
 class SelfAttention(nn.Module):
-    def __init__(self, n_emb: int, ctx_len: int, head_size = 16) -> None:
+    def __init__(self, head_size) -> None:
         super().__init__()
-        self.key = nn.Linear(n_emb, head_size, bias=False)
-        self.query = nn.Linear(n_emb, head_size, bias=False)
-        self.value = nn.Linear(n_emb, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(ctx_len, ctx_len)))
+        self.key = nn.Linear(model_config.n_embd, head_size, bias=False)
+        self.query = nn.Linear(model_config.n_embd, head_size, bias=False)
+        self.value = nn.Linear(model_config.n_embd, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(model_config.block_size, model_config.block_size)))
         self.hs_sqrt = head_size ** -0.5
 
-        # self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(model_config.dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -28,35 +51,35 @@ class SelfAttention(nn.Module):
         
         wei = q @ k.transpose(-2, -1) * self.hs_sqrt # (B, T, 16) @ (B, 16, T) -> (B, T, T)
         
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T), Restricts the access to only the past context (remove for sentiment analysis ?) 
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T), Restricts the access to only the past context (remove for sentiment analysis ?)  # type: ignore
         wei = F.softmax(wei, dim=-1)
-        # wei = self.dropout(wei)
+        wei = self.dropout(wei)
 
         return wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
     
 class MultiSelfAttention(nn.Module):
-    def __init__(self, num_heads: int, n_emb: int, ctx_len: int, head_size = 16) -> None:
+    def __init__(self, num_heads: int, head_size) -> None:
         super().__init__()
-        self.heads = nn.ModuleList([SelfAttention(n_emb, ctx_len, head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(n_emb, n_emb)
-        # self.dropout = nn.Dropout(dropout)
+        self.heads = nn.ModuleList([SelfAttention(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(model_config.n_embd, model_config.n_embd)
+        self.dropout = nn.Dropout(model_config.dropout)
     
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.proj(out) # self.dropout(self.proj(out))
+        out = self.dropout(self.proj(out))
         return out
 
 class FeedForward(nn.Module):
     """
     Simple linear layer followed by a non-linearity 
     """
-    def __init__(self, n_emb: int) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_emb, 4 * n_emb),
+            nn.Linear(model_config.n_embd, 4 * model_config.n_embd),
             nn.ReLU(),
-            nn.Linear(4 * n_emb, n_emb),
-            # nn.Dropout(dropout)
+            nn.Linear(4 * model_config.n_embd, model_config.n_embd),
+            nn.Dropout(model_config.dropout)
         )
 
     def forward(self, x):
@@ -67,14 +90,14 @@ class Block(nn.Module):
     Transformer block: communication followed by computation
     """
 
-    def __init__(self, n_emb: int, n_head: int, ctx_len: int):
+    def __init__(self):
         # n_emb: embedding dimension, n_head: the desired number of heads
         super().__init__()
-        head_size = n_emb // n_head
-        self.sa = MultiSelfAttention(n_head, n_emb, ctx_len, head_size)
-        self.ffwd = FeedForward(n_emb)
-        self.ln1 = nn.LayerNorm(n_emb)
-        self.ln2 = nn.LayerNorm(n_emb)
+        head_size = model_config.n_embd // model_config.n_head
+        self.sa = MultiSelfAttention(model_config.n_head, head_size)
+        self.ffwd = FeedForward()
+        self.ln1 = nn.LayerNorm(model_config.n_embd)
+        self.ln2 = nn.LayerNorm(model_config.n_embd)
 
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
@@ -83,18 +106,18 @@ class Block(nn.Module):
 
 class BigramLanguageModel(nn.Module):
 
-    def __init__(self, vocab_size: int, ctx_len: int, n_emb = 32, n_layer = 4, n_head = 4, device = 'cuda' if torch.cuda.is_available() else 'cpu') -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
-        self.position_embedding_table = nn.Embedding(ctx_len, n_emb)
-        self.blocks = nn.Sequential(*[Block(n_emb, n_head, ctx_len) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_emb) # Final layer norm
-        self.lm_head = nn.Linear(n_emb, vocab_size)
+        self.token_embedding_table = nn.Embedding(model_config.vocab_size, model_config.n_embd)
+        self.position_embedding_table = nn.Embedding(model_config.block_size, model_config.n_embd)
+        self.blocks = nn.Sequential(*[Block() for _ in range(model_config.n_layer)])
+        self.ln_f = nn.LayerNorm(model_config.n_embd) # Final layer norm
+        self.lm_head = nn.Linear(model_config.n_embd, model_config.vocab_size)
         
-        self.device = device
-        self.ctx_len = ctx_len
+        self.device = model_config.device
+        self.ctx_len = model_config.block_size
 
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor = None):
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor = None): # type: ignore
         B, T = inputs.shape
         # inputs and target are both (B, T) tensor of integers
         tok_emb = self.token_embedding_table(inputs) # (B, T, C)

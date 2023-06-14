@@ -3,6 +3,9 @@ import utils
 import model
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+block_size = 256 # AKA ctx_len
+batch_size = 32
+save_path = "./SmolGPT.pth"
 
 print("Using "+device+" device.")
 
@@ -22,9 +25,6 @@ n = int(0.9*len(data))
 train_data = data[:n]
 test_data = data[n:]
 
-block_size = 64
-batch_size = 8
-
 def get_batch(split = "train"):
     data = train_data if split == "train" else test_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -41,17 +41,28 @@ print(f'targets: {yb.shape}')
 print(yb)
 print('--------------')
 
-model = model.BigramLanguageModel(len(tok.vocab), block_size)
+model.model_config = model.ModelConfig(
+    device,
+    len(tok.vocab),
+    batch_size,
+    block_size,
+    512,
+    8, 
+    8,
+    0.2
+)
+
+model = torch.load(save_path) #model.BigramLanguageModel()
 m = model.to(device)
 out, loss = model(xb, yb)
 print(out.shape)
 print(loss)
 
-optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
+optimizer = torch.optim.AdamW(m.parameters(), lr=1e-4)
 
-training_steps = 20000
+training_steps = 80000
 log_step = 1000
-for step in range(training_steps):
+for step in range(training_steps + 1):
 
     # Sample a batch of training data
     xb, yb = get_batch()
@@ -63,10 +74,15 @@ for step in range(training_steps):
     optimizer.step()
 
     if step%1000 == 0:
-        print(f"[{step/log_step}/{training_steps//log_step}] Loss: {loss.item()}")
+        torch.save(model, save_path)
+        print(f"[{step/log_step}/{training_steps//log_step}] Loss: {loss.item()}   Model saved.")
 
 inputs = torch.tensor([tok.encode("ART")], dtype=torch.long)
+inputs = inputs.to(device)
 print("inputs: ", inputs)
 out = m.generate(inputs, 3200)
 print(out)
 print(tok.decode(out[0].tolist()))
+
+torch.save(model, save_path)
+print("Model saved to "+save_path)
