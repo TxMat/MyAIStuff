@@ -71,7 +71,7 @@ class Block(nn.Module):
 
     def forward(self, x):
         x = x + self.sa(x)
-        x = X + self.ffwd(x)
+        x = x + self.ffwd(x)
         return x
 
 class BigramLanguageModel(nn.Module):
