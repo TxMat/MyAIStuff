@@ -49,7 +49,9 @@ print(loss)
 
 optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
 
-for step in range(100000):
+training_steps = 10000
+log_step = 1000
+for step in range(training_steps):
 
     # Sample a batch of training data
     xb, yb = get_batch()
@@ -61,7 +63,7 @@ for step in range(100000):
     optimizer.step()
 
     if step%1000 == 0:
-        print(loss.item())
+        print(f"[{step/log_step}/{training_steps//log_step}] Loss: {loss.item()}")
 
 inputs = torch.tensor([tok.encode("ART")], dtype=torch.long)
 print("inputs: ", inputs)
