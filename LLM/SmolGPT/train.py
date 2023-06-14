@@ -49,7 +49,7 @@ print(loss)
 
 optimizer = torch.optim.AdamW(m.parameters(), lr=1e-3)
 
-training_steps = 10000
+training_steps = 20000
 log_step = 1000
 for step in range(training_steps):
 

@@ -15,6 +15,8 @@ class SelfAttention(nn.Module):
         self.register_buffer('tril', torch.tril(torch.ones(ctx_len, ctx_len)))
         self.hs_sqrt = head_size ** -0.5
 
+        # self.dropout = nn.Dropout(dropout)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Given a specific context, it will reduce the context to head_size based on its estimations on how important each token of information in the context is.
@@ -28,6 +30,7 @@ class SelfAttention(nn.Module):
         
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # (B, T, T), Restricts the access to only the past context (remove for sentiment analysis ?) 
         wei = F.softmax(wei, dim=-1)
+        # wei = self.dropout(wei)
 
         return wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
     
@@ -36,10 +39,11 @@ class MultiSelfAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([SelfAttention(n_emb, ctx_len, head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_emb, n_emb)
+        # self.dropout = nn.Dropout(dropout)
     
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.proj(out)
+        out = self.proj(out) # self.dropout(self.proj(out))
         return out
 
 class FeedForward(nn.Module):
@@ -51,7 +55,8 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(n_emb, 4 * n_emb),
             nn.ReLU(),
-            nn.Linear(4 * n_emb, n_emb)
+            nn.Linear(4 * n_emb, n_emb),
+            # nn.Dropout(dropout)
         )
 
     def forward(self, x):
@@ -68,10 +73,12 @@ class Block(nn.Module):
         head_size = n_emb // n_head
         self.sa = MultiSelfAttention(n_head, n_emb, ctx_len, head_size)
         self.ffwd = FeedForward(n_emb)
+        self.ln1 = nn.LayerNorm(n_emb)
+        self.ln2 = nn.LayerNorm(n_emb)
 
     def forward(self, x):
-        x = x + self.sa(x)
-        x = x + self.ffwd(x)
+        x = x + self.sa(self.ln1(x))
+        x = x + self.ffwd(self.ln2(x))
         return x
 
 class BigramLanguageModel(nn.Module):
@@ -84,7 +91,8 @@ class BigramLanguageModel(nn.Module):
             Block(n_emb, 4, ctx_len),
             Block(n_emb, 4, ctx_len),
             Block(n_emb, 4, ctx_len),
-            Block(n_emb, 4, ctx_len)
+            Block(n_emb, 4, ctx_len),
+            nn.LayerNorm(n_emb)
         )
         self.lm_head = nn.Linear(n_emb, vocab_size)
         
