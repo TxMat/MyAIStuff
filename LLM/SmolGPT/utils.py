@@ -10,7 +10,7 @@ class Tokenizer():
         """ 
         :param text: Vocab gets generated given this text (likely the dataset)
         """
-        self.vocab = sorted(list(set(text)))
+        self.vocab = ''.join(sorted(list(set(text))))
         self.stoi = { ch:i for i,ch in enumerate(self.vocab) }
         self.itos = { i:ch for i,ch in enumerate(self.vocab) }
         
@@ -26,4 +26,3 @@ class Tokenizer():
         """
         return ''.join([self.itos[i] for i in tokens])
 
-    
