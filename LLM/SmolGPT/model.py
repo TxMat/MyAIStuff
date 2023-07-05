@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from dataclasses import dataclass
+from utils import Tokenizer
 
 # B: Batch dimension
 # T: Time dimension

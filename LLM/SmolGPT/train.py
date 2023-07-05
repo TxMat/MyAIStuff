@@ -1,25 +1,33 @@
+import os
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+
+from time import sleep
 import torch
 import utils
 import model
+from transformers import GPT2Tokenizer
+from datetime import datetime as d
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-block_size = 256  # AKA ctx_len
-batch_size = 32
+block_size = 128  # AKA ctx_len
+batch_size = 30
+vocab_size = 50257
 save_path = "./SmolGPT.pth"
 
 print("Using " + device + " device.")
 
-with open("./dataset/articles.txt", "r", encoding="utf-8") as f:
+with open("./dataset/mein_kampf.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
 print("Lenght of the Dataset:", len(text))
 
-tok = utils.Tokenizer(text)
+# tok = utils.Tokenizer(utils.Tokenizer.get_vocab(text))
+tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-print(f"Vocab size: {len(tok.vocab)}")
-print(f"Vocab: {tok.vocab}")
+print(f"Vocab size: {vocab_size}")
 
-data = torch.tensor(tok.encode(text), dtype=torch.long)
+data = torch.tensor(tokenizer(text)["input_ids"], dtype=torch.long)
 
 n = int(0.9 * len(data))
 train_data = data[:n]
@@ -44,7 +52,7 @@ print(yb)
 print("--------------")
 
 model.model_config = model.ModelConfig(
-    device, len(tok.vocab), batch_size, block_size, 512, 8, 8, 0.2
+    device, vocab_size, batch_size, block_size, 512, 8, 8, 0.2
 )
 
 model = torch.load(save_path)  # model.BigramLanguageModel()
@@ -53,32 +61,42 @@ out, loss = model(xb, yb)
 print(out.shape)
 print(loss)
 
-optimizer = torch.optim.AdamW(m.parameters(), lr=1e-4)
+optimizer = torch.optim.AdamW(m.parameters(), lr=4e-5)
 
-training_steps = 80000
+losses = []
+training_steps = 180000
 log_step = 1000
-for step in range(training_steps + 1):
-    # Sample a batch of training data
-    xb, yb = get_batch()
+try:
+    for step in range(training_steps + 1):
+        # Sample a batch of training data
+        xb, yb = get_batch()
 
-    # Actual training
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+        # Actual training
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
 
-    if step % 1000 == 0:
-        torch.save(model, save_path)
-        print(
-            f"[{step/log_step}/{training_steps//log_step}] Loss: {loss.item()}   Model saved."
-        )
+        losses.append(loss.item())
 
-inputs = torch.tensor([tok.encode("ART")], dtype=torch.long)
+        if step % 1000 == 0:
+            torch.save(model, save_path)
+            time = d.now()
+            time = time.strftime("%Y-%m-%d %H:%M:%S")
+            print(
+                f"({time}) [{step/log_step}/{training_steps//log_step}] Loss: {sum(losses) / len(losses)}   Model saved."
+            )
+            losses = []
+except KeyboardInterrupt:
+    pass
+
+prompt = "Les jui"
+inputs = torch.tensor([tokenizer(prompt)["input_ids"]], dtype=torch.long)
 inputs = inputs.to(device)
 print("inputs: ", inputs)
+print(prompt, end="", flush=True)
 for token in m.generate(inputs, 3200):
-    print(tok.decode(token), end="", flush=True)
-print(tok.decode(out[0].tolist()))
+    print(tokenizer.decode(token), end="", flush=True)
 
 torch.save(model, save_path)
 print("Model saved to " + save_path)
