@@ -17,29 +17,92 @@ MAX_H = 20 # Max steps in episode
 BATCH_SIZE = 64
 TRAIN_EACH = 4 # Train each step
 
-MAP = np.array([
-    [0 , 0 , 0 ,-1 , 5],
-    [0 , 0 ,0,-1 , 0],
-    [1 , 0 , 5 , 0 , 0],
-    [-2 , 0 ,0 ,-1, 0],
-    [2 , 0 , 0 , 0, 0]
-], dtype=float)
-
 LR = 5e-4
 discount = 0.99
 
 Transition = NamedTuple("Transition", [('state', np.ndarray), ('action', int), ('reward', float), ('next_state', np.ndarray), ('terminal', bool)])
+
+class DumbMapEnv():
+    MAP = np.array([
+        [0 , 0 , 0 ,-1 , 5],
+        [0 , 0 ,0,-1 , 0],
+        [1 , 0 , 5 , 0 , 0],
+        [-2 , 0 ,0 ,-1, 0],
+        [2 , 0 , 0 , 0, 0]
+    ], dtype=float)
+
+    def __init__(self) -> None:
+        self.reset()
+        
+
+    def reset(self) -> np.ndarray:
+        self.map = DumbMapEnv.MAP.copy()
+        self.x, self.y = (0, 0)
+
+        return self.get_state()
+    
+    def get_state(self) -> np.ndarray:
+        return np.array([self.x, self.y])
+    
+    def step(self, action: int) -> Transition:
+
+        new_x, new_y = self.x, self.y
+        if action == 0: # Right
+            new_x = np.clip(self.x + 1, 0, self.map.shape[1]-1)
+        if action == 1: # Left
+            new_x = np.clip(self.x - 1, 0, self.map.shape[1]-1)
+        if action == 2: # Up
+            new_y = np.clip(self.y - 1, 0, self.map.shape[0]-1)
+        if action == 3: # Down
+            new_y = np.clip(self.y + 1, 0, self.map.shape[0]-1)
+
+        # Get reward
+        reward = self.map[new_y, new_x]
+
+        # print(f"Reward is {reward}")
+
+        if reward > 0:
+            self.map[new_y, new_x] = 0.0
+
+        terminal = reward < 0
+
+        # if terminal: print("C fini")
+
+        # Store in history
+        out = Transition(self.get_state(), action, reward, np.array([new_x, new_y]), terminal)
+
+        self.x, self.y = new_x, new_y
+
+        return out
+    
+    def __repr__(self) -> str:
+        map_str = ""
+        state = self.get_state()
+        for row in range(DumbMapEnv.MAP.shape[0]):
+            line = ""
+            for col in range(DumbMapEnv.MAP.shape[1]):
+                cell = DumbMapEnv.MAP[row, col]
+                if state[0] == col and state[1] == row:
+                    line += "P"
+                elif cell < 0:
+                    line += "X"
+                elif cell > 0:
+                    line += "Y"
+                else:
+                    line += " "
+            map_str += line + "\n"
+        return map_str
 
 # Takes state, returns Q values for each action
 class QNetwork(nn.Module):
     def __init__(self, input_size, output_size):
         super(QNetwork, self).__init__()
         self.fc1 = nn.Linear(input_size, 4)
-        self.fc2 = nn.Linear(4, 6)
-        self.fc3 = nn.Linear(6, 8)
-        self.fc4 = nn.Linear(8, 6)
+        self.fc2 = nn.Linear(4, 16)
+        self.fc3 = nn.Linear(16, 32)
+        self.fc4 = nn.Linear(32, 64)
 
-        self.fc5 = nn.Linear(6, output_size)
+        self.fc5 = nn.Linear(64, output_size)
 
     def forward(self, x) -> torch.Tensor:
         x = F.relu(self.fc1(x))
@@ -90,8 +153,8 @@ class Agent():
         self.Q_t.load_state_dict(self.Q_o.state_dict())
 
         # Define optimizer and criterion
-        self.optimizer = optim.SGD(self.Q_o.parameters(), lr=LR)
-        self.criterion = nn.SmoothL1Loss()
+        self.optimizer = optim.Adam(self.Q_o.parameters(), lr=LR)
+        criterion = nn.SmoothL1Loss()
 
         self.memory = Memory()
 
@@ -122,14 +185,17 @@ class Agent():
     def train(self):
         states, actions, rewards, next_states, terminals = self.memory.batch()
 
+        criterion = nn.SmoothL1Loss()
+
         self.Q_o.train()
         self.Q_t.eval()
 
         predicted = self.Q_o(states).gather(1, actions) # BATCH_SIZE of Tensor<ExpectedRewardOfTakenAction>
-        labels_next = self.Q_t(next_states).detach().max(1)[0].unsqueeze(1) # BATCH_SIZE of Tensor<ExpectedRewardOfNextActionUsingOfflineNetwork>
+        with torch.no_grad():
+            labels_next = self.Q_t(next_states).detach().max(1)[0].unsqueeze(1) # BATCH_SIZE of Tensor<ExpectedRewardOfNextActionUsingOfflineNetwork>
 
         targets = rewards + ( discount * labels_next * (1 - terminals) )
-        loss = self.criterion(predicted, targets).to(device)
+        loss = criterion(predicted, targets).to(device)
         
         self.optimizer.zero_grad()
         loss.backward()
@@ -154,9 +220,9 @@ class Agent():
 
     def show_policy(self):
         actions_str = ""
-        for y in range(MAP.shape[0]):
+        for y in range(DumbMapEnv.MAP.shape[0]):
             line = ""
-            for x in range(MAP.shape[1]):
+            for x in range(DumbMapEnv.MAP.shape[1]):
                 out = self.Q_o(torch.tensor((x, y), dtype=torch.float32).to(device)).cpu().detach().numpy()
                 action = np.argmax(out)
                 if action == 0: # Right
@@ -173,46 +239,22 @@ class Agent():
         print(actions_str)
 
 def episode(g):
-    Map = MAP.copy()
+    e = DumbMapEnv()
     d = []
-    x, y = 0, 0 # Agent coords
+    state = e.reset()
     for s in range(MAX_H):
-        state = np.array([x, y])
-        # Choose action
-        
         action = agent.act(state, g)
         # action = int(input(f"TFK ? {state}"))
 
         # Execute action
-        new_x, new_y = x, y
-        if action == 0: # Right
-            new_x = np.clip(x + 1, 0, MAP.shape[1]-1)
-        if action == 1: # Left
-            new_x = np.clip(x - 1, 0, MAP.shape[1]-1)
-        if action == 2: # Up
-            new_y = np.clip(y - 1, 0, MAP.shape[0]-1)
-        if action == 3: # Down
-            new_y = np.clip(y + 1, 0, MAP.shape[0]-1)
-
-        # Get reward
-        reward = Map[new_y, new_x]
-
-        # print(f"Reward is {reward}")
-
-        if reward > 0:
-            Map[new_y, new_x] = 0.0
-
-        terminal = reward < 0
-
-        # if terminal: print("C fini")
-
+        t = e.step(action)
         # Store in history
-        d.append(Transition(np.array((x, y)), action, reward, np.array((x, y)), terminal))
-        agent.step(np.array((x, y)), action, reward, np.array((x, y)), terminal)
+        d.append(t)
+        agent.step(*t)
 
-        x, y = new_x, new_y
+        state = t.next_state
 
-        if terminal:
+        if t.terminal:
             # Terminal state
             break
 
@@ -220,7 +262,7 @@ def episode(g):
 
 agent = Agent(INPUT_SHAPE, ACTION_SPACE)
 
-print(MAP)
+print(DumbMapEnv.MAP)
 
 def play_episode(e: list[Transition]):
     for i in range(len(e)):
@@ -232,10 +274,10 @@ def play_episode(e: list[Transition]):
 
         state = s.state
         map_str = ""
-        for row in range(MAP.shape[0]):
+        for row in range(DumbMapEnv.MAP.shape[0]):
             line = ""
-            for col in range(MAP.shape[1]):
-                cell = MAP[row, col]
+            for col in range(DumbMapEnv.MAP.shape[1]):
+                cell = DumbMapEnv.MAP[row, col]
                 if state[0] == col and state[1] == row:
                     line += "P"
                 elif cell < 0:
@@ -250,26 +292,28 @@ def play_episode(e: list[Transition]):
         print("-----------------------")
         sleep(1)
 
-TRAINING_STEPS = 100000
-for i in range(TRAINING_STEPS):
-    ratio = i / TRAINING_STEPS
-    if ratio < 0.1:
-        greed = 0.0
-    elif ratio < 0.2:
-        greed = 0.1
-    elif ratio < 0.4:
-        greed = 0.3
-    elif ratio < 0.5:
-        greed = 0.7
-    else:
-        greed = 0.95
-    episode(greed) # Greed increases over time
+if __name__ == "__main__":
 
-    if i % 100 == 0:
-        print(f"Epoch {int(i / 100)} / {int(TRAINING_STEPS/100)} ; Greed = {greed}")
-        #play_episode(episode(i / TRAINING_STEPS))
+    TRAINING_STEPS = 10000
+    for i in range(TRAINING_STEPS):
+        ratio = i / TRAINING_STEPS
+        if ratio < 0.1:
+            greed = 0.0
+        elif ratio < 0.2:
+            greed = 0.1
+        elif ratio < 0.4:
+            greed = 0.3
+        elif ratio < 0.5:
+            greed = 0.7
+        else:
+            greed = 0.95
+        episode(greed) # Greed increases over time
 
-d = episode(1.0)
-play_episode(d)
-print(d)
-agent.show_policy()
+        if i % 100 == 0:
+            print(f"Epoch {int(i / 100)} / {int(TRAINING_STEPS/100)} ; Greed = {greed}")
+            #play_episode(episode(i / TRAINING_STEPS))
+
+    d = episode(1.0)
+    play_episode(d)
+    print(d)
+    agent.show_policy()
