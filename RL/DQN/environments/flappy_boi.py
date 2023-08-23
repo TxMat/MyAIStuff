@@ -80,17 +80,18 @@ class FlappyBoïEnv():
             terminal = self.collision()
 
         # Pipes + score
-        self.score += self.D / 10
+        reward = 0
         if self.pipes[0][0] < self.x - self.PW:
             self.score += 1
             self.pipes.pop(0)
+            reward = 1
         self.spawn_pipes()
 
         if action == 1 and self.old_action == 0:
             self.v_y = -250
         self.old_action = action
 
-        return old_state, action, self.score if not terminal else -1, self.get_state(), terminal
+        return old_state, action, reward if not terminal else -1, self.get_state(), terminal
     
     def render(self, keep_fps = True) -> None:
         self.display.fill((0, 0, 0))
