@@ -6,28 +6,26 @@ from time import sleep
 import torch
 import utils
 import model
-from transformers import GPT2Tokenizer
 from datetime import datetime as d
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 block_size = 128  # AKA ctx_len
-batch_size = 30
-vocab_size = 50257
+batch_size = 64
 save_path = "./SmolGPT.pth"
 
 print("Using " + device + " device.")
 
-with open("./dataset/mein_kampf.txt", "r", encoding="utf-8") as f:
+with open("./dataset/articles.txt", "r", encoding="utf-8") as f:
     text = f.read()
 
 print("Lenght of the Dataset:", len(text))
 
-# tok = utils.Tokenizer(utils.Tokenizer.get_vocab(text))
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+tok = utils.Tokenizer(utils.Tokenizer.get_vocab(text))
+vocab_size = len(tok.get_vocab(text))
 
 print(f"Vocab size: {vocab_size}")
 
-data = torch.tensor(tokenizer(text)["input_ids"], dtype=torch.long)
+data = torch.tensor(tok.encode(text), dtype=torch.long)
 
 n = int(0.9 * len(data))
 train_data = data[:n]
@@ -52,10 +50,10 @@ print(yb)
 print("--------------")
 
 model.model_config = model.ModelConfig(
-    device, vocab_size, batch_size, block_size, 512, 8, 8, 0.2
+    device, vocab_size, batch_size, block_size, 512, 8, 12, 0.2
 )
 
-model = torch.load(save_path)  # model.BigramLanguageModel()
+model = model.BigramLanguageModel() # torch.load(save_path)
 m = model.to(device)
 out, loss = model(xb, yb)
 print(out.shape)
@@ -90,13 +88,13 @@ try:
 except KeyboardInterrupt:
     pass
 
-prompt = "Les jui"
-inputs = torch.tensor([tokenizer(prompt)["input_ids"]], dtype=torch.long)
+prompt = "Emmanuel"
+inputs = torch.tensor([tok.encode(prompt)], dtype=torch.long)
 inputs = inputs.to(device)
 print("inputs: ", inputs)
 print(prompt, end="", flush=True)
 for token in m.generate(inputs, 3200):
-    print(tokenizer.decode(token), end="", flush=True)
+    print(tok.decode(token), end="", flush=True)
 
 torch.save(model, save_path)
 print("Model saved to " + save_path)
