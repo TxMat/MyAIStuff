@@ -2,11 +2,19 @@ import os
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 
-from time import sleep
 import torch
 import utils
 import model
 from datetime import datetime as d
+
+print("PyTorch version:", torch.__version__)
+print("cuda available:", torch.cuda.is_available())
+print("cuda version:", torch.version.cuda)
+print("cudnn version:", torch.backends.cudnn.version())
+print("Number of GPUs:", torch.cuda.device_count())
+print("Current cuda device:", torch.cuda.current_device())
+print("Device name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
+print("")
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 block_size = 128  # AKA ctx_len
